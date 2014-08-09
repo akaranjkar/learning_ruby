@@ -120,7 +120,9 @@ class VSphereHelper
         @virtualmachineconfigspec.memoryMB = @vram
         source_vm = @vim.serviceInstance.find_datacenter.find_vm(source) or abort ("Error: Source VM #{source} not found.")
         source_vmnic = source_vm.config.hardware.device.grep(RbVmomi::VIM::VirtualEthernetCard).first
-        source_vmnic.backing.deviceName = @portgroup.name 
+        source_vmnic.backing.deviceName = @portgroup.name
+        source_vmnic.connectable.connected = true
+        source_vmnic.connectable.startConnected = true
         devicespec = RbVmomi::VIM.VirtualDeviceConfigSpec(:device => source_vmnic, :operation => "edit")
         @virtualmachineconfigspec.deviceChange.push devicespec
         @virtualmachineconfigspec
@@ -237,33 +239,37 @@ class VSphereHelper
     #Return status of a task. Works only on recent tasks that haven't been cleared from the taskManager
     #Returns error, queued, running or success
     def report_task_status(task_id)
-        return nil unless task_id 
+        $stderr.puts "No task-id provided." unless task_id 
         found = false
         @vim.serviceInstance.content.taskManager.recentTask.each do |task|
             task_id_string = task.info.task.to_s.split("\"")[1]
             if task_id_string == task_id
-                found = true
-                state = task.info.state
-                case state
-                when "success"
-                    vmid = task.info.result
-                    start_time = task.info.startTime
-                    complete_time = task.info.completeTime
-                    puts "State: #{state}, VM: #{vmid.name}, vmid: #{get_moid(vmid)}, Start time: #{start_time}, Complete time: #{complete_time}"
-                when "running"
-                    progress = task.info.progress
-                    start_time = task.info.startTime 
-                    message = task.info.description.message
-                    puts "State: #{state}, Progress: #{progress}% complete, Current step: #{message}, Start time: #{start_time}"
-                when "queued"
-                    puts "State #{state}"
-                when "error"
-                    error_message = task.info.error.localizedMessage
-                    start_time = task.info.startTime
-                    complete_time = task.info.completeTime
-                    puts "State: #{state}, Message: #{error_message}, Start time: #{start_time}, Complete time: #{complete_time}"
+                begin
+                    found = true
+                    state = task.info.state
+                    case state
+                    when "success"
+                        vmid = task.info.result
+                        start_time = task.info.startTime
+                        complete_time = task.info.completeTime
+                        puts "State: #{state}, VM: #{vmid.name}, vmid: #{get_moid(vmid)}, Start time: #{start_time}, Complete time: #{complete_time}"
+                    when "running"
+                        progress = task.info.progress
+                        start_time = task.info.startTime 
+                        message = task.info.description.message
+                        puts "State: #{state}, Progress: #{progress}% complete, Current step: #{message}, Start time: #{start_time}"
+                    when "queued"
+                        puts "State #{state}"
+                    when "error"
+                        error_message = task.info.error.localizedMessage
+                        start_time = task.info.startTime
+                        complete_time = task.info.completeTime
+                        puts "State: #{state}, Message: #{error_message}, Start time: #{start_time}, Complete time: #{complete_time}"
+                    end
+                    return 
+                rescue
+                    $stderr.puts "Unknown exception while checking the status of #{task_id}."
                 end
-                return 
             end
         end
         puts "No task '#{task_id}' found." if not found 
@@ -341,6 +347,8 @@ when "status"
         v.report_task_status(opts[:entity])
     when /^vm-\d+/
         v.return_vm_status(opts[:entity])
+    else
+        $stderr.puts "No/unknown entity-id provided."
     end
     v.disconnect
 when "inventory"
